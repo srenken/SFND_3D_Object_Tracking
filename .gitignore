@@ -1,0 +1,3 @@
+build
+.vscode
+dat/yolo/*.weights

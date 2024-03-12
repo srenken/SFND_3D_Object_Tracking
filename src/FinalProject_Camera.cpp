@@ -45,6 +45,12 @@ int main(int argc, const char *argv[])
     string yoloModelConfiguration = yoloBasePath + "yolov3.cfg";
     string yoloModelWeights = yoloBasePath + "yolov3.weights";
 
+    // Yolo Modell Class Names
+    vector<string> classes;
+    ifstream ifs(yoloClassesFile.c_str());
+    string line;
+    while (getline(ifs, line)) classes.push_back(line);
+
     // Lidar
     string lidarPrefix = "KITTI/2011_09_26/velodyne_points/data/000000";
     string lidarFileType = ".bin";
@@ -93,6 +99,7 @@ int main(int argc, const char *argv[])
         frame.cameraImg = img;
         dataBuffer.push_back(frame);
 
+        cout << endl << "++++++++ Image Index: " << imgIndex << " ++++++++" << endl;
         cout << "#1 : LOAD IMAGE INTO BUFFER done" << endl;
 
 
@@ -102,6 +109,41 @@ int main(int argc, const char *argv[])
         float nmsThreshold = 0.4;        
         detectObjects((dataBuffer.end() - 1)->cameraImg, (dataBuffer.end() - 1)->boundingBoxes, confThreshold, nmsThreshold,
                       yoloBasePath, yoloClassesFile, yoloModelConfiguration, yoloModelWeights, bVis);
+
+        // Visualize Detected Objects
+        bVis = true;
+        if (bVis)
+        {
+            // show results
+            cv::Mat vis_OD_Img = img.clone();
+            for (auto it = (dataBuffer.end() - 1)->boundingBoxes.begin(); it != (dataBuffer.end() - 1)->boundingBoxes.end(); ++it)
+            {
+                // Draw rectangle displaying the bounding box
+                int top, left, width, height;
+                top = (*it).roi.y;
+                left = (*it).roi.x;
+                width = (*it).roi.width;
+                height = (*it).roi.height;
+                cv::rectangle(vis_OD_Img, cv::Point(left, top), cv::Point(left + width, top + height), cv::Scalar(0, 255, 0), 2);
+
+                string label = cv::format("%.2f", (*it).confidence);
+                label = classes[((*it).classID)] + ":" + label + "; BoxID: " + cv::format("%d", (*it).boxID);
+
+                // Display label at the top of the bounding box
+                int baseLine;
+                cv::Size labelSize = getTextSize(label, cv::FONT_ITALIC, 0.5, 1, &baseLine);
+                top = max(top, labelSize.height);
+                rectangle(vis_OD_Img, cv::Point(left, top - round(1.5 * labelSize.height)), cv::Point(left + round(1.5 * labelSize.width), top + baseLine), cv::Scalar(255, 255, 255), cv::FILLED);
+                cv::putText(vis_OD_Img, label, cv::Point(left, top), cv::FONT_ITALIC, 0.75, cv::Scalar(0, 0, 0), 1);
+            }
+
+            string windowName = "Object classification";
+            cv::namedWindow( windowName, 1 );
+            cv::imshow( windowName, vis_OD_Img );
+        }
+
+
+        bVis = false;
 
         cout << "#2 : DETECT & CLASSIFY OBJECTS done" << endl;
 
@@ -140,7 +182,7 @@ int main(int argc, const char *argv[])
         
         
         // REMOVE THIS LINE BEFORE PROCEEDING WITH THE FINAL PROJECT
-        continue; // skips directly to the next image without processing what comes beneath
+        //continue; // skips directly to the next image without processing what comes beneath
 
         /* DETECT IMAGE KEYPOINTS */
 
@@ -150,15 +192,19 @@ int main(int argc, const char *argv[])
 
         // extract 2D keypoints from current image
         vector<cv::KeyPoint> keypoints; // create empty feature list for current image
-        string detectorType = "SHITOMASI";
+        string detectorType = "FAST";
 
         if (detectorType.compare("SHITOMASI") == 0)
         {
-            detKeypointsShiTomasi(keypoints, imgGray, false);
+            detKeypointsShiTomasi(keypoints, imgGray, true);
+        }
+        else if (detectorType.compare("HARRIS") == 0)
+        {
+            detKeypointsHarris(keypoints, imgGray, true);
         }
         else
         {
-            //...
+            detKeypointsModern(keypoints, imgGray, detectorType, true);
         }
 
         // optional : limit number of keypoints (helpful for debugging and learning)
@@ -184,7 +230,7 @@ int main(int argc, const char *argv[])
         /* EXTRACT KEYPOINT DESCRIPTORS */
 
         cv::Mat descriptors;
-        string descriptorType = "BRISK"; // BRISK, BRIEF, ORB, FREAK, AKAZE, SIFT
+        string descriptorType = "ORB"; // BRISK, BRIEF, ORB, FREAK, AKAZE, SIFT
         descKeypoints((dataBuffer.end() - 1)->keypoints, (dataBuffer.end() - 1)->cameraImg, descriptors, descriptorType);
 
         // push descriptors for current frame to end of data buffer
@@ -217,12 +263,19 @@ int main(int argc, const char *argv[])
 
             //// STUDENT ASSIGNMENT
             //// TASK FP.1 -> match list of 3D objects (vector<BoundingBox>) between current and previous frame (implement ->matchBoundingBoxes)
+
             map<int, int> bbBestMatches;
             matchBoundingBoxes(matches, bbBestMatches, *(dataBuffer.end()-2), *(dataBuffer.end()-1)); // associate bounding boxes between current and previous frame using keypoint matches
             //// EOF STUDENT ASSIGNMENT
 
             // store matches in current data frame
             (dataBuffer.end()-1)->bbMatches = bbBestMatches;
+
+            cout << "#Best Matches#" << endl; 
+            for (const auto &entry: bbBestMatches)
+            {
+                std::cout << "{" << entry.first << "," << entry.second << "}" << std::endl;
+            }
 
             cout << "#8 : TRACK 3D OBJECT BOUNDING BOXES done" << endl;
 
